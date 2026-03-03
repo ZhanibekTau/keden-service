@@ -13,7 +13,7 @@ type ISubscriptionRepository interface {
 	GetByID(ctx context.Context, id uint) (*models.Subscription, error)
 	GetByUserID(ctx context.Context, userID uint) ([]models.Subscription, error)
 	GetActiveByUserID(ctx context.Context, userID uint) (*models.Subscription, error)
-	GetPendingRequests(ctx context.Context) ([]models.Subscription, error)
+	GetActiveRequests(ctx context.Context) ([]models.Subscription, error)
 	Update(ctx context.Context, sub *models.Subscription) error
 	GetActiveCount(ctx context.Context) (int64, error)
 	GetPendingCount(ctx context.Context) (int64, error)
@@ -29,7 +29,7 @@ func NewSubscriptionRepository(db *gorm.DB) *SubscriptionRepository {
 }
 
 func (r *SubscriptionRepository) Create(ctx context.Context, sub *models.Subscription) error {
-	return r.db.WithContext(ctx).Create(sub).Error
+	return r.db.WithContext(ctx).Omit("User", "ApprovedBy").Create(sub).Error
 }
 
 func (r *SubscriptionRepository) GetByID(ctx context.Context, id uint) (*models.Subscription, error) {
@@ -66,19 +66,24 @@ func (r *SubscriptionRepository) GetActiveByUserID(ctx context.Context, userID u
 	return &sub, nil
 }
 
-func (r *SubscriptionRepository) GetPendingRequests(ctx context.Context) ([]models.Subscription, error) {
+// GetActiveRequests returns all subscriptions not yet finalized (pending, in_progress, invoice_sent).
+func (r *SubscriptionRepository) GetActiveRequests(ctx context.Context) ([]models.Subscription, error) {
 	var subs []models.Subscription
 	result := r.db.WithContext(ctx).
 		Preload("User").
 		Preload("User.Role").
-		Where("status = ?", models.SubscriptionStatusPending).
+		Where("status IN ?", []string{
+			models.SubscriptionStatusPending,
+			models.SubscriptionStatusInProgress,
+			models.SubscriptionStatusInvoiceSent,
+		}).
 		Order("requested_at ASC").
 		Find(&subs)
 	return subs, result.Error
 }
 
 func (r *SubscriptionRepository) Update(ctx context.Context, sub *models.Subscription) error {
-	return r.db.WithContext(ctx).Save(sub).Error
+	return r.db.WithContext(ctx).Omit("User", "ApprovedBy").Save(sub).Error
 }
 
 func (r *SubscriptionRepository) GetActiveCount(ctx context.Context) (int64, error) {
@@ -93,7 +98,11 @@ func (r *SubscriptionRepository) GetActiveCount(ctx context.Context) (int64, err
 func (r *SubscriptionRepository) GetPendingCount(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&models.Subscription{}).
-		Where("status = ?", models.SubscriptionStatusPending).
+		Where("status IN ?", []string{
+			models.SubscriptionStatusPending,
+			models.SubscriptionStatusInProgress,
+			models.SubscriptionStatusInvoiceSent,
+		}).
 		Count(&count).Error
 	return count, err
 }

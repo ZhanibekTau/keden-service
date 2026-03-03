@@ -13,6 +13,7 @@ type IUserRepository interface {
 	GetByID(ctx context.Context, id uint) (*models.User, error)
 	GetAll(ctx context.Context) ([]models.User, error)
 	Update(ctx context.Context, user *models.User) error
+	Delete(ctx context.Context, id uint) error
 	GetStats(ctx context.Context) (int64, error)
 }
 
@@ -65,6 +66,10 @@ func (r *UserRepository) GetAll(ctx context.Context) ([]models.User, error) {
 
 func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 	return r.db.WithContext(ctx).Save(user).Error
+}
+
+func (r *UserRepository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Unscoped().Delete(&models.User{}, id).Error
 }
 
 func (r *UserRepository) GetStats(ctx context.Context) (int64, error) {

@@ -47,15 +47,15 @@
         <el-table-column label="Дата" width="180">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="Действия" width="150" fixed="right">
+        <el-table-column label="Действия" width="200" fixed="right">
           <template #default="{ row }">
             <el-button
               v-if="row.status === 'completed'"
-              type="success"
+              type="primary"
               size="small"
-              @click="downloadExcel(row)"
+              @click="openResult(row)"
             >
-              <el-icon><Download /></el-icon> Excel
+              <el-icon><View /></el-icon> Результат
             </el-button>
             <el-tooltip v-if="row.status === 'error'" :content="row.error_message" placement="top">
               <el-button type="danger" size="small" text>
@@ -72,12 +72,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useDocumentsStore } from '@/stores/documents'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Upload, Download, Warning } from '@element-plus/icons-vue'
+import { Upload, Warning, View } from '@element-plus/icons-vue'
 import type { Document } from '@/types'
 import type { UploadFile } from 'element-plus'
 
 const docStore = useDocumentsStore()
+const router = useRouter()
 const showUpload = ref(false)
 const uploading = ref(false)
 const selectedFile = ref<File | null>(null)
@@ -103,13 +105,8 @@ async function handleUpload() {
   }
 }
 
-async function downloadExcel(doc: Document) {
-  try {
-    await docStore.downloadExcel(doc.id, doc.original_name)
-    ElMessage.success('Файл скачивается')
-  } catch {
-    ElMessage.error('Ошибка скачивания')
-  }
+function openResult(doc: Document) {
+  router.push(`/broker/documents/${doc.id}`)
 }
 
 function formatDate(d: string) {

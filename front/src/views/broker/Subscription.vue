@@ -16,7 +16,22 @@
           </div>
 
           <div v-else-if="subStore.current.status === 'pending'">
-            <el-result icon="info" title="Заявка отправлена" sub-title="Ожидает подтверждения администратором" />
+            <el-result icon="info" title="Заявка отправлена" sub-title="Ожидает рассмотрения администратором" />
+          </div>
+
+          <div v-else-if="subStore.current.status === 'in_progress'">
+            <el-result icon="info" title="Принято в работу" sub-title="Менеджер обрабатывает вашу заявку" />
+          </div>
+
+          <div v-else-if="subStore.current.status === 'invoice_sent'">
+            <el-result icon="warning" title="Счёт отправлен">
+              <template #sub-title>
+                <p>Счёт на оплату отправлен. После получения оплаты подписка будет активирована.</p>
+                <p v-if="subStore.current.admin_comment" style="margin-top: 8px; color: #606266">
+                  Комментарий: {{ subStore.current.admin_comment }}
+                </p>
+              </template>
+            </el-result>
           </div>
 
           <div v-else-if="subStore.current.status === 'active'">
@@ -74,8 +89,12 @@ const subStore = useSubscriptionStore()
 const requesting = ref(false)
 
 onMounted(async () => {
-  await subStore.fetchCurrent()
-  await subStore.fetchHistory()
+  try {
+    await subStore.fetchCurrent()
+    await subStore.fetchHistory()
+  } catch {
+    ElMessage.error('Ошибка загрузки данных подписки')
+  }
 })
 
 async function requestSub() {
@@ -85,7 +104,15 @@ async function requestSub() {
     await subStore.fetchHistory()
     ElMessage.success('Заявка на подписку отправлена')
   } catch (err: any) {
-    ElMessage.error(err.response?.data?.error || 'Ошибка')
+    const serverError = err.response?.data?.error || ''
+    const errorMap: Record<string, string> = {
+      'you already have a pending subscription request': 'У вас уже есть активная заявка на рассмотрении',
+      'you already have an active subscription': 'У вас уже есть активная подписка',
+    }
+    ElMessage.error(errorMap[serverError] || serverError || 'Ошибка при создании заявки')
+    // Обновляем состояние на случай рассинхронизации
+    await subStore.fetchCurrent().catch(() => {})
+    await subStore.fetchHistory().catch(() => {})
   } finally {
     requesting.value = false
   }
@@ -97,12 +124,18 @@ function formatDate(d: string | null) {
 }
 
 function getStatusType(s: string) {
-  const map: Record<string, any> = { pending: 'warning', active: 'success', expired: 'danger', rejected: 'danger' }
+  const map: Record<string, any> = {
+    pending: 'warning', in_progress: 'primary', invoice_sent: '',
+    active: 'success', expired: 'info', rejected: 'danger'
+  }
   return map[s] || 'info'
 }
 
 function getStatusText(s: string) {
-  const map: Record<string, string> = { pending: 'Ожидает', active: 'Активна', expired: 'Истекла', rejected: 'Отклонена' }
+  const map: Record<string, string> = {
+    pending: 'Ожидает', in_progress: 'В работе', invoice_sent: 'Счёт отправлен',
+    active: 'Активна', expired: 'Истекла', rejected: 'Отклонена'
+  }
   return map[s] || s
 }
 </script>

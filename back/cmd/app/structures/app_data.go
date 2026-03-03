@@ -6,10 +6,9 @@ import (
 )
 
 type AppData struct {
-	BaseConfig   *config.BaseConfig
-	DbConfig     *structures.DbConfig
-	RabbitConfig *structures.RabbitConfig
-	JWTConfig    *structures.JWTConfig
-	AIConfig     *structures.AIConfig
-	AdminConfig  *structures.AdminConfig
+	BaseConfig  *config.BaseConfig
+	DbConfig    *structures.DbConfig
+	JWTConfig   *structures.JWTConfig
+	AIConfig    *structures.AIConfig
+	AdminConfig *structures.AdminConfig
 }

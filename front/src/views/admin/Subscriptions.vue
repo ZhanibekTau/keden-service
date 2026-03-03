@@ -1,84 +1,188 @@
 <template>
   <div>
-    <h2 style="margin-bottom: 24px">Управление подписками</h2>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px">
+      <h2 style="margin: 0">Управление подписками</h2>
+      <el-button :loading="loading" @click="reload" size="small" text type="primary">Обновить</el-button>
+    </div>
 
-    <el-card style="margin-bottom: 24px">
-      <template #header><span>Ожидающие подтверждения</span></template>
-      <el-table :data="adminStore.pendingSubscriptions" style="width: 100%">
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column label="Клиент" min-width="180">
-          <template #default="{ row }">
-            <div>
-              <strong>{{ row.user?.first_name }} {{ row.user?.last_name }}</strong>
-              <p style="margin: 0; font-size: 12px; color: #909399">{{ row.user?.email }}</p>
-            </div>
+    <el-card>
+      <el-tabs v-model="activeTab" type="border-card">
+        <el-tab-pane v-for="tab in tabs" :key="tab.status" :name="tab.status">
+          <template #label>
+            <span style="display: flex; align-items: center; gap: 6px">
+              {{ tab.label }}
+              <el-badge
+                :value="countByStatus(tab.status)"
+                :hidden="countByStatus(tab.status) === 0"
+                :type="tab.badgeType"
+              />
+            </span>
           </template>
-        </el-table-column>
-        <el-table-column label="Тип" width="140">
-          <template #default="{ row }">
-            <el-tag :type="row.user?.account_type === 'company' ? 'primary' : 'success'" size="small">
-              {{ row.user?.account_type === 'company' ? 'Компания' : 'Физ. лицо' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="Телефон" width="160">
-          <template #default="{ row }">{{ row.user?.phone }}</template>
-        </el-table-column>
-        <el-table-column label="Сумма" width="120">
-          <template #default="{ row }">{{ row.amount?.toLocaleString() }} &#8376;</template>
-        </el-table-column>
-        <el-table-column label="Дата заявки" width="140">
-          <template #default="{ row }">{{ formatDate(row.requested_at) }}</template>
-        </el-table-column>
-        <el-table-column label="Действия" width="240" fixed="right">
-          <template #default="{ row }">
-            <el-button type="success" size="small" @click="handleApprove(row.id)">Одобрить</el-button>
-            <el-button type="danger" size="small" @click="handleReject(row.id)">Отклонить</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="!adminStore.pendingSubscriptions.length" description="Нет ожидающих заявок" :image-size="60" />
+
+          <el-table
+            :data="byStatus(tab.status)"
+            v-loading="loading"
+            style="width: 100%"
+            :empty-text="`Нет заявок со статусом «${tab.label}»`"
+          >
+            <el-table-column prop="id" label="ID" width="60" />
+
+            <!-- Client -->
+            <el-table-column label="Клиент" min-width="200">
+              <template #default="{ row }">
+                <div style="font-weight: 600">{{ row.user?.first_name }} {{ row.user?.last_name }}</div>
+                <div style="font-size: 12px; color: #909399">{{ row.user?.email }}</div>
+                <div style="font-size: 12px; color: #909399">{{ row.user?.phone }}</div>
+              </template>
+            </el-table-column>
+
+            <!-- Account type + company -->
+            <el-table-column label="Тип / Компания" min-width="230">
+              <template #default="{ row }">
+                <el-tag
+                  :type="row.user?.account_type === 'company' ? 'primary' : 'success'"
+                  size="small"
+                  style="margin-bottom: 4px"
+                >
+                  {{ row.user?.account_type === 'company' ? 'Компания' : 'Физ. лицо' }}
+                </el-tag>
+                <template v-if="row.user?.account_type === 'company'">
+                  <div style="font-size: 13px; margin-top: 4px">
+                    <div><strong>{{ row.company_name || '—' }}</strong></div>
+                    <div style="color: #606266; font-size: 12px">{{ row.legal_name }}</div>
+                    <div style="color: #409EFF; font-weight: 600; font-size: 13px">БИН: {{ row.bin || '—' }}</div>
+                  </div>
+                </template>
+              </template>
+            </el-table-column>
+
+            <!-- Amount -->
+            <el-table-column label="Сумма" width="130">
+              <template #default="{ row }">{{ row.amount?.toLocaleString('ru-RU') }} ₸</template>
+            </el-table-column>
+
+            <!-- Date -->
+            <el-table-column label="Дата заявки" width="120">
+              <template #default="{ row }">{{ formatDate(row.requested_at) }}</template>
+            </el-table-column>
+
+            <!-- Comment -->
+            <el-table-column label="Комментарий" min-width="150">
+              <template #default="{ row }">
+                <span style="font-size: 12px; color: #606266">{{ row.admin_comment || '—' }}</span>
+              </template>
+            </el-table-column>
+
+            <!-- Actions -->
+            <el-table-column label="Действия" width="200" fixed="right">
+              <template #default="{ row }">
+                <div style="display: flex; flex-direction: column; gap: 6px">
+                  <el-button
+                    v-if="nextAction(row.status)"
+                    :type="nextAction(row.status)!.btnType"
+                    size="small"
+                    style="width: 100%; margin: 0"
+                    @click="doAction(row, nextAction(row.status)!.status)"
+                  >
+                    {{ nextAction(row.status)!.label }}
+                  </el-button>
+                  <el-button
+                    type="danger"
+                    size="small"
+                    plain
+                    style="width: 100%; margin: 0"
+                    @click="doReject(row)"
+                  >
+                    Отклонить
+                  </el-button>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useAdminStore } from '@/stores/admin'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { Subscription } from '@/types'
 
 const adminStore = useAdminStore()
+const loading = ref(false)
+const activeTab = ref('pending')
 
-onMounted(() => adminStore.fetchPendingSubscriptions())
+const tabs = [
+  { status: 'pending',      label: 'Новые заявки',    badgeType: 'warning' as const },
+  { status: 'in_progress',  label: 'В работе',         badgeType: 'primary' as const },
+  { status: 'invoice_sent', label: 'Счёт отправлен',   badgeType: 'danger'  as const },
+]
 
-async function handleApprove(id: number) {
+onMounted(reload)
+
+async function reload() {
+  loading.value = true
   try {
-    const result = await ElMessageBox.prompt('Комментарий (способ оплаты):', 'Одобрение подписки', {
-      confirmButtonText: 'Одобрить',
-      cancelButtonText: 'Отмена',
-      inputPlaceholder: 'Например: Kaspi перевод'
-    })
-    const comment = typeof result === 'object' && 'value' in result ? (result as any).value : ''
-    await adminStore.approveSubscription(id, comment || '')
-    ElMessage.success('Подписка одобрена')
-  } catch {
-    // cancelled
+    await adminStore.fetchPendingSubscriptions()
+  } finally {
+    loading.value = false
   }
 }
 
-async function handleReject(id: number) {
-  try {
-    const result = await ElMessageBox.prompt('Причина отклонения:', 'Отклонение заявки', {
-      confirmButtonText: 'Отклонить',
-      cancelButtonText: 'Отмена',
-      type: 'warning'
-    })
-    const comment = typeof result === 'object' && 'value' in result ? (result as any).value : ''
-    await adminStore.rejectSubscription(id, comment || '')
-    ElMessage.success('Заявка отклонена')
-  } catch {
-    // cancelled
+function byStatus(status: string) {
+  return adminStore.pendingSubscriptions.filter(s => s.status === status)
+}
+
+function countByStatus(status: string) {
+  return adminStore.pendingSubscriptions.filter(s => s.status === status).length
+}
+
+function nextAction(status: string): { label: string; status: string; btnType: 'success' | 'primary' | 'warning' } | null {
+  const map: Record<string, { label: string; status: string; btnType: 'success' | 'primary' | 'warning' }> = {
+    pending:      { label: 'Принять в работу', status: 'in_progress',  btnType: 'primary' },
+    in_progress:  { label: 'Отправить счёт',   status: 'invoice_sent', btnType: 'warning' },
+    invoice_sent: { label: 'Активировать',     status: 'active',       btnType: 'success' },
   }
+  return map[status] ?? null
+}
+
+async function doAction(row: Subscription, newStatus: string) {
+  const labels: Record<string, string> = {
+    in_progress:  'Принять заявку в работу?',
+    invoice_sent: 'Подтвердить отправку счёта?',
+    active:       'Активировать подписку?',
+  }
+  try {
+    const result = await ElMessageBox.prompt(
+      labels[newStatus] ?? 'Изменить статус?',
+      'Подтверждение',
+      { confirmButtonText: 'Подтвердить', cancelButtonText: 'Отмена', inputPlaceholder: 'Комментарий (необязательно)', inputValue: '' }
+    )
+    const comment = typeof result === 'object' && 'value' in result ? (result as any).value : ''
+    await adminStore.updateSubscriptionStatus(row.id, newStatus, comment || '')
+    await adminStore.fetchStats()
+    ElMessage.success('Статус обновлён')
+    // Auto-switch to the next tab
+    const nextTab: Record<string, string> = { in_progress: 'in_progress', invoice_sent: 'invoice_sent', active: 'pending' }
+    if (nextTab[newStatus]) activeTab.value = nextTab[newStatus]
+  } catch { /* cancelled */ }
+}
+
+async function doReject(row: Subscription) {
+  try {
+    const result = await ElMessageBox.prompt(
+      'Причина отклонения:',
+      'Отклонение заявки',
+      { confirmButtonText: 'Отклонить', cancelButtonText: 'Отмена', type: 'warning', inputPlaceholder: 'Укажите причину' }
+    )
+    const comment = typeof result === 'object' && 'value' in result ? (result as any).value : ''
+    await adminStore.updateSubscriptionStatus(row.id, 'rejected', comment || '')
+    await adminStore.fetchStats()
+    ElMessage.success('Заявка отклонена')
+  } catch { /* cancelled */ }
 }
 
 function formatDate(d: string) {

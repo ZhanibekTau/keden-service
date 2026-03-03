@@ -16,6 +16,8 @@ func RunMigrations(db *gorm.DB) error {
 		&models.Company{},
 		&models.Subscription{},
 		&models.Document{},
+		&models.DocumentFields{},
+		&models.DocumentItem{},
 		&models.RefreshToken{},
 	)
 	if err != nil {

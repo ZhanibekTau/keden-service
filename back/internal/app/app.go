@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"keden-service/back/cmd/app/structures"
 	"keden-service/back/internal/configs"
@@ -11,9 +10,7 @@ import (
 	"keden-service/back/internal/middleware"
 	"keden-service/back/internal/pkg/config"
 	"keden-service/back/internal/pkg/database"
-	localRabbit "keden-service/back/internal/pkg/rabbitmq"
 
-	"github.com/ThreeDotsLabs/watermill-amqp/v2/pkg/amqp"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
@@ -59,12 +56,6 @@ func (a *MyApp) PrepareConfigs() error {
 	}
 	a.appData.DbConfig = dbConfig
 
-	rabbitConfig, err := configs.InitRabbitConfig()
-	if err != nil {
-		return err
-	}
-	a.appData.RabbitConfig = rabbitConfig
-
 	jwtConfig, err := configs.InitJWTConfig()
 	if err != nil {
 		return err
@@ -93,12 +84,8 @@ func (a *MyApp) PrepareComponents() error {
 		return err
 	}
 
-	if err := a.initRabbitClient(); err != nil {
-		logrus.Warnf("RabbitMQ init failed (non-fatal): %v", err)
-	}
-
 	a.repoFactory = repository.NewPostgresRepositoryFactory(a.clients.DbClient)
-	a.servicesFactory = services.NewServiceFactory(a.repoFactory, a.appData, a.clients.RabbitMq)
+	a.servicesFactory = services.NewServiceFactory(a.repoFactory, a.appData)
 	a.handlersFactory = handlers.NewHandlerFactory(a.servicesFactory)
 
 	a.setupRouter()
@@ -135,26 +122,6 @@ func (a *MyApp) initDb() error {
 		logrus.Warnf("Admin seed failed: %v", err)
 	}
 
-	return nil
-}
-
-func (a *MyApp) initRabbitClient() error {
-	amqpURL := fmt.Sprintf(
-		"amqp://%s:%s@%s:%s/",
-		a.appData.RabbitConfig.RabbitLogin,
-		a.appData.RabbitConfig.RabbitPassword,
-		a.appData.RabbitConfig.RabbitHost,
-		a.appData.RabbitConfig.RabbitPort,
-	)
-
-	amqClient, err := localRabbit.NewAmqpPubSub(amqp.ConnectionConfig{
-		AmqpURI: amqpURL,
-	})
-	if err != nil {
-		return err
-	}
-
-	a.clients.RabbitMq = amqClient
 	return nil
 }
 
@@ -196,6 +163,9 @@ func (a *MyApp) setupRouter() {
 			docs.GET("", a.handlersFactory.DocumentHandler.GetDocuments)
 			docs.GET("/:id", a.handlersFactory.DocumentHandler.GetDocumentByID)
 			docs.GET("/:id/download", a.handlersFactory.DocumentHandler.DownloadExcel)
+			docs.GET("/:id/ai-data", a.handlersFactory.DocumentHandler.GetAIData)
+			docs.PUT("/:id/ai-data", a.handlersFactory.DocumentHandler.UpdateAIData)
+			docs.GET("/:id/download/xml", a.handlersFactory.DocumentHandler.DownloadXML)
 		}
 	}
 
@@ -207,9 +177,8 @@ func (a *MyApp) setupRouter() {
 		admin.GET("/stats", a.handlersFactory.AdminHandler.GetStats)
 		admin.GET("/companies", a.handlersFactory.CompanyHandler.GetAllClients)
 		admin.PUT("/companies/:id/status", a.handlersFactory.CompanyHandler.UpdateUserStatus)
-		admin.GET("/subscriptions/pending", a.handlersFactory.SubscriptionHandler.GetPendingRequests)
-		admin.POST("/subscriptions/:id/approve", a.handlersFactory.SubscriptionHandler.ApproveSubscription)
-		admin.POST("/subscriptions/:id/reject", a.handlersFactory.SubscriptionHandler.RejectSubscription)
+		admin.GET("/subscriptions", a.handlersFactory.SubscriptionHandler.GetActiveRequests)
+		admin.PUT("/subscriptions/:id/status", a.handlersFactory.SubscriptionHandler.UpdateStatus)
 		admin.GET("/documents", a.handlersFactory.DocumentHandler.GetAllDocuments)
 	}
 
@@ -220,33 +189,4 @@ func (a *MyApp) RunRestServer() error {
 	addr := a.appData.BaseConfig.ServerAddress
 	logrus.Infof("Starting REST server on %s", addr)
 	return a.router.Run(addr)
-}
-
-func (a *MyApp) RunConsumer() error {
-	if a.clients.RabbitMq == nil {
-		logrus.Warn("RabbitMQ not available, consumer not started")
-		return nil
-	}
-
-	queueConfig := localRabbit.NewConsumerTopicDurableConfig(
-		"document.processing",
-		"keden.documents.exchange",
-		"keden.documents.processing.queue",
-		1,
-	)
-
-	if err := a.clients.RabbitMq.RegisterHandler(
-		a.handlersFactory.DocumentProcessorHandler.ConsumeMessage,
-		queueConfig...,
-	); err != nil {
-		return err
-	}
-
-	logrus.Info("Document processing consumer started")
-	if err := a.clients.RabbitMq.Consume(context.Background()); err != nil {
-		return err
-	}
-
-	defer a.clients.RabbitMq.CloseConnection()
-	return nil
 }

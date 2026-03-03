@@ -27,7 +27,7 @@ func NewDocumentRepository(db *gorm.DB) *DocumentRepository {
 }
 
 func (r *DocumentRepository) Create(ctx context.Context, doc *models.Document) error {
-	return r.db.WithContext(ctx).Create(doc).Error
+	return r.db.WithContext(ctx).Omit("User").Create(doc).Error
 }
 
 func (r *DocumentRepository) GetByID(ctx context.Context, id uint) (*models.Document, error) {

@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 	_ "time/tzdata"
@@ -27,22 +26,9 @@ func main() {
 		log.Fatalf("App error: %v", err)
 	}
 
-	var wg sync.WaitGroup
-
-	// Start RabbitMQ consumer
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := newApp.RunConsumer(); err != nil {
-			log.Printf("Consumer error: %v", err)
-		}
-	}()
-
 	if err = newApp.RunRestServer(); err != nil {
 		log.Printf("REST server error: %v", err)
 	}
-
-	log.Println("Application started successfully")
 
 	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
@@ -50,6 +36,4 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down gracefully...")
-	wg.Wait()
-	log.Println("All components stopped.")
 }

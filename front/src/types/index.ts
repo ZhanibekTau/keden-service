@@ -42,6 +42,10 @@ export interface Subscription {
   requested_at: string
   approved_at: string | null
   created_at: string
+  // Company fields (present when account_type === 'company')
+  company_name?: string
+  legal_name?: string
+  bin?: string
 }
 
 export interface Document {
@@ -55,6 +59,12 @@ export interface Document {
   queued_at: string | null
   processed_at: string | null
   created_at: string
+}
+
+export interface AIData {
+  document_type: string
+  fields: Record<string, string | number>
+  items: Record<string, string | number>[]
 }
 
 export interface AdminStats {

@@ -165,10 +165,19 @@ async function handleRegister() {
     }
 
     await authStore.register(data)
-    router.push('/broker/dashboard')
     ElMessage.success('Регистрация успешна!')
+    await router.push('/broker/dashboard').catch(() => {
+      window.location.href = '/broker/dashboard'
+    })
   } catch (err: any) {
-    ElMessage.error(err.response?.data?.error || 'Ошибка регистрации')
+    const serverError = err.response?.data?.error || ''
+    const errorMap: Record<string, string> = {
+      'email already registered': 'Email уже зарегистрирован',
+      'BIN already registered': 'Компания с таким БИН уже зарегистрирована',
+      'failed to create company record, please try again': 'Ошибка создания компании, попробуйте ещё раз',
+      'company_name, legal_name and bin are required for company account type': 'Заполните все данные компании',
+    }
+    ElMessage.error(errorMap[serverError] || serverError || 'Ошибка регистрации')
   } finally {
     loading.value = false
   }

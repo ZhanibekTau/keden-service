@@ -3,6 +3,7 @@ package subscription
 import (
 	"errors"
 	"keden-service/back/internal/middleware"
+	"keden-service/back/internal/models"
 	"keden-service/back/internal/services/subscription"
 	"net/http"
 	"strconv"
@@ -67,17 +68,21 @@ func (h *SubscriptionHandler) GetSubscriptionHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, subs)
 }
 
-func (h *SubscriptionHandler) GetPendingRequests(c *gin.Context) {
-	subs, err := h.subService.GetPendingRequests(c.Request.Context())
+// GetActiveRequests returns all open subscription requests (pending + in_progress + invoice_sent)
+// enriched with company data (BIN/IIN) for the admin panel.
+func (h *SubscriptionHandler) GetActiveRequests(c *gin.Context) {
+	details, err := h.subService.GetActiveRequests(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get pending requests"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get subscription requests"})
 		return
 	}
 
-	c.JSON(http.StatusOK, subs)
+	c.JSON(http.StatusOK, details)
 }
 
-func (h *SubscriptionHandler) ApproveSubscription(c *gin.Context) {
+// UpdateStatus moves a subscription through the workflow:
+// pending → in_progress → invoice_sent → active (or any → rejected).
+func (h *SubscriptionHandler) UpdateStatus(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
@@ -88,45 +93,38 @@ func (h *SubscriptionHandler) ApproveSubscription(c *gin.Context) {
 	adminID := middleware.GetUserID(c)
 
 	var req struct {
+		Status  string `json:"status" binding:"required"`
 		Comment string `json:"comment"`
 	}
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "status is required"})
+		return
+	}
 
-	if err := h.subService.ApproveSubscription(c.Request.Context(), uint(id), adminID, req.Comment); err != nil {
+	// Validate that the requested status is a known value
+	known := map[string]bool{
+		models.SubscriptionStatusInProgress:  true,
+		models.SubscriptionStatusInvoiceSent: true,
+		models.SubscriptionStatusActive:      true,
+		models.SubscriptionStatusRejected:    true,
+	}
+	if !known[req.Status] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown status"})
+		return
+	}
+
+	if err := h.subService.UpdateStatus(c.Request.Context(), uint(id), adminID, req.Status, req.Comment); err != nil {
 		if errors.Is(err, subscription.ErrSubscriptionNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "subscription not found"})
 			return
 		}
-		if errors.Is(err, subscription.ErrCannotApprove) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "subscription is not in pending status"})
+		if errors.Is(err, subscription.ErrCannotTransition) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status transition"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to approve subscription"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "subscription approved"})
-}
-
-func (h *SubscriptionHandler) RejectSubscription(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid subscription id"})
-		return
-	}
-
-	adminID := middleware.GetUserID(c)
-
-	var req struct {
-		Comment string `json:"comment"`
-	}
-	_ = c.ShouldBindJSON(&req)
-
-	if err := h.subService.RejectSubscription(c.Request.Context(), uint(id), adminID, req.Comment); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reject subscription"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "subscription rejected"})
+	c.JSON(http.StatusOK, gin.H{"message": "status updated"})
 }

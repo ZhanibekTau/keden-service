@@ -23,7 +23,8 @@ func NewCompanyRepository(db *gorm.DB) *CompanyRepository {
 }
 
 func (r *CompanyRepository) Create(ctx context.Context, company *models.Company) error {
-	return r.db.WithContext(ctx).Create(company).Error
+	// Omit("User") prevents GORM from nullifying user_id when User pointer is nil (BelongsTo behavior)
+	return r.db.WithContext(ctx).Omit("User").Create(company).Error
 }
 
 func (r *CompanyRepository) GetByID(ctx context.Context, id uint) (*models.Company, error) {

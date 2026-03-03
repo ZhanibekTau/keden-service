@@ -9,6 +9,7 @@ import (
 	roleRepo "keden-service/back/internal/repositories/database/postgres/role"
 	tokenRepo "keden-service/back/internal/repositories/database/postgres/token"
 	userRepo "keden-service/back/internal/repositories/database/postgres/user"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -17,13 +18,14 @@ import (
 )
 
 var (
-	ErrInvalidCredentials = errors.New("invalid email or password")
-	ErrEmailExists        = errors.New("email already registered")
-	ErrBINExists          = errors.New("BIN already registered")
-	ErrInvalidToken       = errors.New("invalid or expired token")
-	ErrAccountInactive    = errors.New("account is inactive")
-	ErrRoleNotFound       = errors.New("role not found")
+	ErrInvalidCredentials    = errors.New("invalid email or password")
+	ErrEmailExists           = errors.New("email already registered")
+	ErrBINExists             = errors.New("BIN already registered")
+	ErrInvalidToken          = errors.New("invalid or expired token")
+	ErrAccountInactive       = errors.New("account is inactive")
+	ErrRoleNotFound          = errors.New("role not found")
 	ErrCompanyFieldsRequired = errors.New("company fields are required for company account type")
+	ErrCompanyCreateFailed   = errors.New("failed to create company record")
 )
 
 type RegisterRequest struct {
@@ -133,13 +135,20 @@ func (s *AuthService) Register(ctx context.Context, req RegisterRequest) (*AuthR
 	if req.AccountType == "company" {
 		company := &models.Company{
 			UserID:        user.ID,
+			Email:         user.Email,
 			CompanyName:   req.CompanyName,
 			LegalName:     req.LegalName,
 			BIN:           req.BIN,
 			ContactPerson: req.ContactPerson,
 		}
 		if err := s.companyRepo.Create(ctx, company); err != nil {
-			return nil, ErrBINExists
+			// Rollback: remove the created user so the email is free for retry
+			_ = s.userRepo.Delete(ctx, user.ID)
+			// Distinguish unique constraint on BIN from other errors
+			if isUniqueConstraintError(err) {
+				return nil, ErrBINExists
+			}
+			return nil, ErrCompanyCreateFailed
 		}
 	}
 
@@ -266,4 +275,15 @@ func (s *AuthService) ValidateToken(tokenStr string) (*Claims, error) {
 	}
 
 	return claims, nil
+}
+
+// isUniqueConstraintError detects PostgreSQL unique constraint violation (code 23505)
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "23505") ||
+		strings.Contains(msg, "duplicate key") ||
+		strings.Contains(msg, "unique constraint")
 }

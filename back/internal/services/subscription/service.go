@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"keden-service/back/internal/models"
+	companyRepo "keden-service/back/internal/repositories/database/postgres/company"
 	subRepo "keden-service/back/internal/repositories/database/postgres/subscription"
 	"time"
 )
@@ -13,14 +14,31 @@ var (
 	ErrAlreadyPending       = errors.New("you already have a pending subscription request")
 	ErrAlreadyActive        = errors.New("you already have an active subscription")
 	ErrCannotApprove        = errors.New("subscription is not in pending status")
+	ErrCannotTransition     = errors.New("invalid status transition")
 )
 
-type SubscriptionService struct {
-	subRepo subRepo.ISubscriptionRepository
+// SubscriptionDetail enriches Subscription with company fields for the admin view.
+type SubscriptionDetail struct {
+	models.Subscription
+	CompanyName string `json:"company_name,omitempty"`
+	LegalName   string `json:"legal_name,omitempty"`
+	BIN         string `json:"bin,omitempty"`
 }
 
-func NewSubscriptionService(sr subRepo.ISubscriptionRepository) *SubscriptionService {
-	return &SubscriptionService{subRepo: sr}
+// allowed status transitions: current status → allowed next statuses
+var allowedTransitions = map[string][]string{
+	models.SubscriptionStatusPending:     {models.SubscriptionStatusInProgress, models.SubscriptionStatusRejected},
+	models.SubscriptionStatusInProgress:  {models.SubscriptionStatusInvoiceSent, models.SubscriptionStatusRejected},
+	models.SubscriptionStatusInvoiceSent: {models.SubscriptionStatusActive, models.SubscriptionStatusRejected},
+}
+
+type SubscriptionService struct {
+	subRepo     subRepo.ISubscriptionRepository
+	companyRepo companyRepo.ICompanyRepository
+}
+
+func NewSubscriptionService(sr subRepo.ISubscriptionRepository, cr companyRepo.ICompanyRepository) *SubscriptionService {
+	return &SubscriptionService{subRepo: sr, companyRepo: cr}
 }
 
 func (s *SubscriptionService) RequestSubscription(ctx context.Context, userID uint) (*models.Subscription, error) {
@@ -37,7 +55,9 @@ func (s *SubscriptionService) RequestSubscription(ctx context.Context, userID ui
 		return nil, err
 	}
 	for _, sub := range subs {
-		if sub.Status == models.SubscriptionStatusPending {
+		if sub.Status == models.SubscriptionStatusPending ||
+			sub.Status == models.SubscriptionStatusInProgress ||
+			sub.Status == models.SubscriptionStatusInvoiceSent {
 			return nil, ErrAlreadyPending
 		}
 	}
@@ -79,11 +99,31 @@ func (s *SubscriptionService) GetSubscriptionHistory(ctx context.Context, userID
 	return s.subRepo.GetByUserID(ctx, userID)
 }
 
-func (s *SubscriptionService) GetPendingRequests(ctx context.Context) ([]models.Subscription, error) {
-	return s.subRepo.GetPendingRequests(ctx)
+// GetActiveRequests returns all open subscription requests enriched with company data.
+func (s *SubscriptionService) GetActiveRequests(ctx context.Context) ([]SubscriptionDetail, error) {
+	subs, err := s.subRepo.GetActiveRequests(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	details := make([]SubscriptionDetail, 0, len(subs))
+	for _, sub := range subs {
+		d := SubscriptionDetail{Subscription: sub}
+		if sub.User != nil && sub.User.AccountType == "company" {
+			company, _ := s.companyRepo.GetByUserID(ctx, sub.UserID)
+			if company != nil {
+				d.CompanyName = company.CompanyName
+				d.LegalName = company.LegalName
+				d.BIN = company.BIN
+			}
+		}
+		details = append(details, d)
+	}
+	return details, nil
 }
 
-func (s *SubscriptionService) ApproveSubscription(ctx context.Context, subscriptionID uint, adminID uint, comment string) error {
+// UpdateStatus moves a subscription to the next status following the allowed transition map.
+func (s *SubscriptionService) UpdateStatus(ctx context.Context, subscriptionID uint, adminID uint, newStatus string, comment string) error {
 	sub, err := s.subRepo.GetByID(ctx, subscriptionID)
 	if err != nil {
 		return err
@@ -91,40 +131,33 @@ func (s *SubscriptionService) ApproveSubscription(ctx context.Context, subscript
 	if sub == nil {
 		return ErrSubscriptionNotFound
 	}
-	if sub.Status != models.SubscriptionStatusPending {
-		return ErrCannotApprove
+
+	allowed, ok := allowedTransitions[sub.Status]
+	if !ok {
+		return ErrCannotTransition
+	}
+	valid := false
+	for _, s := range allowed {
+		if s == newStatus {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return ErrCannotTransition
 	}
 
 	now := time.Now()
-	endDate := now.AddDate(0, 1, 0)
-
-	sub.Status = models.SubscriptionStatusActive
-	sub.StartDate = &now
-	sub.EndDate = &endDate
-	sub.ApprovedAt = &now
-	sub.ApprovedByID = &adminID
+	sub.Status = newStatus
 	sub.AdminComment = comment
-
-	return s.subRepo.Update(ctx, sub)
-}
-
-func (s *SubscriptionService) RejectSubscription(ctx context.Context, subscriptionID uint, adminID uint, comment string) error {
-	sub, err := s.subRepo.GetByID(ctx, subscriptionID)
-	if err != nil {
-		return err
-	}
-	if sub == nil {
-		return ErrSubscriptionNotFound
-	}
-	if sub.Status != models.SubscriptionStatusPending {
-		return ErrCannotApprove
-	}
-
-	now := time.Now()
-	sub.Status = models.SubscriptionStatusRejected
-	sub.ApprovedAt = &now
 	sub.ApprovedByID = &adminID
-	sub.AdminComment = comment
+	sub.ApprovedAt = &now
+
+	if newStatus == models.SubscriptionStatusActive {
+		endDate := now.AddDate(0, 1, 0)
+		sub.StartDate = &now
+		sub.EndDate = &endDate
+	}
 
 	return s.subRepo.Update(ctx, sub)
 }

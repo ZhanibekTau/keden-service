@@ -7,7 +7,6 @@ import (
 	companyHandler "keden-service/back/internal/handlers/http/company"
 	documentHandler "keden-service/back/internal/handlers/http/document"
 	subscriptionHandler "keden-service/back/internal/handlers/http/subscription"
-	"keden-service/back/internal/handlers/mq"
 )
 
 func NewHandlerFactory(svc *services.ServiceFactory) *HandlerFactory {
@@ -22,20 +21,14 @@ func NewHandlerFactory(svc *services.ServiceFactory) *HandlerFactory {
 		svc.SubscriptionService,
 		svc.DocumentService,
 	)
-	h.DocumentProcessorHandler = mq.NewDocumentProcessorHandler(
-		svc.DocumentService,
-		svc.AIService,
-		svc.ExcelService,
-	)
 
 	return h
 }
 
 type HandlerFactory struct {
-	AuthHandler              *authHandler.AuthHandler
-	CompanyHandler           *companyHandler.CompanyHandler
-	SubscriptionHandler      *subscriptionHandler.SubscriptionHandler
-	DocumentHandler          *documentHandler.DocumentHandler
-	AdminHandler             *adminHandler.AdminHandler
-	DocumentProcessorHandler *mq.DocumentProcessorHandler
+	AuthHandler         *authHandler.AuthHandler
+	CompanyHandler      *companyHandler.CompanyHandler
+	SubscriptionHandler *subscriptionHandler.SubscriptionHandler
+	DocumentHandler     *documentHandler.DocumentHandler
+	AdminHandler        *adminHandler.AdminHandler
 }

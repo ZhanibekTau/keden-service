@@ -26,17 +26,12 @@ export const useAdminStore = defineStore('admin', () => {
   }
 
   async function fetchPendingSubscriptions() {
-    const response = await api.get<Subscription[]>('/admin/subscriptions/pending')
+    const response = await api.get<Subscription[]>('/admin/subscriptions')
     pendingSubscriptions.value = response.data
   }
 
-  async function approveSubscription(id: number, comment: string) {
-    await api.post(`/admin/subscriptions/${id}/approve`, { comment })
-    pendingSubscriptions.value = pendingSubscriptions.value.filter(s => s.id !== id)
-  }
-
-  async function rejectSubscription(id: number, comment: string) {
-    await api.post(`/admin/subscriptions/${id}/reject`, { comment })
+  async function updateSubscriptionStatus(id: number, status: string, comment = '') {
+    await api.put(`/admin/subscriptions/${id}/status`, { status, comment })
     pendingSubscriptions.value = pendingSubscriptions.value.filter(s => s.id !== id)
   }
 
@@ -54,6 +49,6 @@ export const useAdminStore = defineStore('admin', () => {
   return {
     stats, clients, pendingSubscriptions, documents, loading,
     fetchStats, fetchClients, fetchPendingSubscriptions,
-    approveSubscription, rejectSubscription, updateClientStatus, fetchDocuments
+    updateSubscriptionStatus, updateClientStatus, fetchDocuments
   }
 })

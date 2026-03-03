@@ -48,13 +48,13 @@
             <el-table-column label="Клиент">
               <template #default="{ row }">{{ row.user ? `${row.user.first_name} ${row.user.last_name}` : '-' }}</template>
             </el-table-column>
-            <el-table-column label="Дата">
-              <template #default="{ row }">{{ formatDate(row.requested_at) }}</template>
-            </el-table-column>
-            <el-table-column label="Действие" width="120">
+            <el-table-column label="Статус" width="160">
               <template #default="{ row }">
-                <el-button type="success" size="small" @click="approve(row.id)">Одобрить</el-button>
+                <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
               </template>
+            </el-table-column>
+            <el-table-column label="Дата" width="110">
+              <template #default="{ row }">{{ formatDate(row.requested_at) }}</template>
             </el-table-column>
           </el-table>
           <el-empty v-if="!adminStore.pendingSubscriptions.length" description="Нет ожидающих заявок" :image-size="60" />
@@ -77,7 +77,6 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useAdminStore } from '@/stores/admin'
-import { ElMessage } from 'element-plus'
 
 const adminStore = useAdminStore()
 
@@ -85,12 +84,18 @@ onMounted(async () => {
   await Promise.all([adminStore.fetchStats(), adminStore.fetchPendingSubscriptions()])
 })
 
-async function approve(id: number) {
-  try {
-    await adminStore.approveSubscription(id, '')
-    await adminStore.fetchStats()
-    ElMessage.success('Подписка одобрена')
-  } catch { ElMessage.error('Ошибка') }
+function statusLabel(s: string) {
+  const map: Record<string, string> = {
+    pending: 'Новая', in_progress: 'В работе', invoice_sent: 'Счёт отправлен'
+  }
+  return map[s] ?? s
+}
+
+function statusType(s: string) {
+  const map: Record<string, string> = {
+    pending: 'warning', in_progress: 'primary', invoice_sent: ''
+  }
+  return map[s] ?? 'info'
 }
 
 function formatDate(d: string) {

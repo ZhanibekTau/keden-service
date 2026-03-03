@@ -37,6 +37,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "company_name, legal_name and bin are required for company account type"})
 			return
 		}
+		if errors.Is(err, auth.ErrCompanyCreateFailed) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create company record, please try again"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "registration failed"})
 		return
 	}

@@ -26,6 +26,7 @@ const router = createRouter({
         { path: '', redirect: '/broker/dashboard' },
         { path: 'dashboard', name: 'broker-dashboard', component: () => import('@/views/broker/Dashboard.vue') },
         { path: 'documents', name: 'broker-documents', component: () => import('@/views/broker/Documents.vue') },
+        { path: 'documents/:id', name: 'broker-document-result', component: () => import('@/views/broker/DocumentResult.vue') },
         { path: 'subscription', name: 'broker-subscription', component: () => import('@/views/broker/Subscription.vue') },
         { path: 'profile', name: 'broker-profile', component: () => import('@/views/broker/Profile.vue') }
       ]
@@ -54,17 +55,32 @@ router.beforeEach((to, _from, next) => {
   }
 
   if (to.meta.role && userStr) {
-    const user = JSON.parse(userStr)
-    const roleName = user.role?.name || ''
-    if (roleName !== to.meta.role) {
-      return next(roleName === 'admin' ? '/admin/dashboard' : '/broker/dashboard')
+    try {
+      const user = JSON.parse(userStr)
+      const roleName = user.role?.name || ''
+      if (roleName !== to.meta.role) {
+        const redirectPath = roleName === 'admin' ? '/admin/dashboard' : '/broker/dashboard'
+        // Предотвращаем бесконечный редирект на тот же путь
+        if (to.path !== redirectPath) {
+          return next(redirectPath)
+        }
+      }
+    } catch {
+      // Невалидный JSON — пропускаем проверку роли
     }
   }
 
   if ((to.name === 'login' || to.name === 'register') && token && userStr) {
-    const user = JSON.parse(userStr)
-    const roleName = user.role?.name || ''
-    return next(roleName === 'admin' ? '/admin/dashboard' : '/broker/dashboard')
+    try {
+      const user = JSON.parse(userStr)
+      const roleName = user.role?.name || ''
+      const redirectPath = roleName === 'admin' ? '/admin/dashboard' : '/broker/dashboard'
+      if (to.path !== redirectPath) {
+        return next(redirectPath)
+      }
+    } catch {
+      // ignore
+    }
   }
 
   next()
